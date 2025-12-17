@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+    <title>VisiSense - GPS Cảnh báo trực tiếp</title>
+    <link rel="stylesheet" href="map.css">
+    
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+    
+<style>
+        /* Thêm dòng này để tự động zoom 90% toàn trang */
+        body {
+            zoom: 0.8; 
+            -moz-transform: scale(0.8); /* Dành cho Firefox */
+            -moz-transform-origin: 0 0;
+        }
+
+        #map-canvas {
+            height: 500px;
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+        @keyframes blinking {
+            0% { opacity: 1; background-color: red; transform: scale(1); }
+            50% { opacity: 0.8; background-color: darkred; transform: scale(1.02); }
+            100% { opacity: 1; background-color: red; transform: scale(1); }
+        }
+        #sos-box {
+            display: none;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 5px;
+            font-size: 24px;
+            animation: blinking 0.8s infinite;
+            border: 3px solid yellow;
+        }
+        #btn-enable-sound {
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+        }
+        #btn-enable-sound:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg"></div>
+    <div class="bg-others"> 
+        <div class="container">
+            <h1>VisiSense - GPS Cảnh báo trực tiếp</h1>
+            <center>
+                <hr style="height:2px; border:none; color:#ffffff; background-color:#ffffff; width:35%; margin: 0 auto 20px auto;">
+            </center>
+            
+            <div class="text-center mb-2">
+                <button id="btn-enable-sound" class="btn btn-warning btn-lg" onclick="enableAudioContext()">
+                    Nhấn vào đây để KÍCH HOẠT CẢNH BÁO ÂM THANH
+                </button>
+                <p id="audio-status" style="color: white; display: none;">Đã kích hoạt âm thanh</p>
+            </div>
+
+            <center><div id="map-canvas"></div></center>
+
+            <div id="sos-box">
+                ⚠️ CẢNH BÁO: TÍN HIỆU SOS ĐANG ĐƯỢC KÍCH HOẠT! ⚠️
+            </div>
+        </div>
+    </div>
+
+    <audio id="sos-audio" loop preload="auto">
+        <source src="alarm.mp3" type="audio/mpeg">
+    </audio>
+
+    <script src="https://www.gstatic.com/firebasejs/7.20.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.20.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.20.0/firebase-database.js"></script>
+    
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+
+    <script>
+        let initialLat = 11.9404;
+        let initialLng = 108.4583;
+
+        const map = L.map('map-canvas').setView([initialLat, initialLng], 15);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19, attribution: 'OpenStreetMap'
+        }).addTo(map);
+
+        let marker = L.marker([initialLat, initialLng]).addTo(map);
+        let pathArray = [];
+        let polyline = L.polyline([], {color: '#2E10FF', weight: 5}).addTo(map);
+
+        var audioPlayer = document.getElementById("sos-audio");
+        
+        function enableAudioContext() {
+            var playPromise = audioPlayer.play();
+
+            if (playPromise !== undefined) {
+                playPromise.then(_ => {
+                    audioPlayer.pause();
+                    audioPlayer.currentTime = 0;
+                    
+                    document.getElementById("btn-enable-sound").style.display = "none";
+                    document.getElementById("audio-status").style.display = "block";
+                    console.log("Audio đã được kích hoạt thành công!");
+                })
+                .catch(error => {
+                    console.error("Lỗi Âm thanh:", error);
+                    alert("LỖI: Không tìm thấy file 'alarm.mp3' hoặc trình duyệt chặn. Hãy kiểm tra lại tên file trong thư mục!");
+                });
+            }
+        }
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDOLfuvb1EKfBYqYDUejLhlnhuNHx1grkw",
+            authDomain: "device-streaming-dc17e3c2.firebaseapp.com",
+            databaseURL: "https://device-streaming-dc17e3c2-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "device-streaming-dc17e3c2",
+            storageBucket: "device-streaming-dc17e3c2.firebasestorage.app",
+            messagingSenderId: "403050013707",
+            appId: "1:403050013707:web:356714ace980adb53b530e"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        var ref = firebase.database().ref();
+
+        ref.on("value", function(snapshot) {
+            var gps = snapshot.val();
+            
+            if (gps) {
+                if (gps.LAT && gps.LNG) {
+                    var lat = parseFloat(gps.LAT);
+                    var lng = parseFloat(gps.LNG);
+                    map.setView([lat, lng]);
+                    marker.setLatLng([lat, lng]);
+                    pathArray.push([lat, lng]);
+                    polyline.setLatLngs(pathArray);
+                }
+
+                var sosStatus = gps.SOS; 
+                var sosBox = document.getElementById("sos-box");
+
+                if (sosStatus == 1) {
+                    sosBox.style.display = "block";
+                    
+                    if (audioPlayer.paused) {
+                        var p = audioPlayer.play();
+                        if (p !== undefined) {
+                            p.catch(err => {
+                                console.log("Cần bấm nút Kích hoạt trước khi âm thanh có thể chạy tự động.");
+                            });
+                        }
+                    }
+                } else {
+                    sosBox.style.display = "none";
+                    audioPlayer.pause();
+                    audioPlayer.currentTime = 0;
+                }
+            }
+        }, function (error) {
+            console.log("Error: " + error.code);
+        });
+    </script>
+</body>
+</html>
